@@ -1,7 +1,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const bodyParser = require('body-parser');
-const { User, PreviousEmployee } = require('./models');
+const { User, Course, Module, Content, Quiz } = require('./models');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -22,7 +22,7 @@ app.get('/', (req, res) => {
 app.post('/api/login', async (req, res) => {
   console.log('Login request received:', req.body);
   const { email, password } = req.body;
-  
+
   try {
     const user = await User.findOne({ where: { email } });
     if (!user) {
@@ -36,11 +36,11 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid password' });
     }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
     console.log('Login successful');
     res.json({ message: 'Login successful', token, user });
   } catch (error) {
-    console.log('Error:', error);
+    console.error('Error during login:', error);
     res.status(500).json({ message: 'An error occurred', error });
   }
 });
@@ -58,8 +58,8 @@ app.get('/api/users', async (req, res) => {
 
 // Add a new user
 app.post('/api/users', async (req, res) => {
-  const { firstName, lastName, email, password, roles } = req.body;
-  
+  const { firstName, lastName, email, password, role } = req.body;
+
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = await User.create({
@@ -67,7 +67,7 @@ app.post('/api/users', async (req, res) => {
       lastName,
       email,
       password: hashedPassword,
-      roles
+      role,
     });
     res.json({ message: 'User created successfully', user: newUser });
   } catch (error) {
@@ -79,17 +79,17 @@ app.post('/api/users', async (req, res) => {
 // Update user roles
 app.put('/api/users/:id/roles', async (req, res) => {
   const { id } = req.params;
-  const { roles } = req.body;
-  
+  const { role } = req.body;
+
   try {
     const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    user.roles = roles;
+    user.role = role;
     await user.save();
-    res.json({ message: 'User roles updated successfully', user });
+    res.json({ message: 'User role updated successfully', user });
   } catch (error) {
     console.log('Error:', error);
     res.status(500).json({ message: 'An error occurred', error });
@@ -99,34 +99,140 @@ app.put('/api/users/:id/roles', async (req, res) => {
 // Remove user and archive
 app.delete('/api/users/:id', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    await PreviousEmployee.create({
-      email: user.email,
-      roles: user.roles,
-      removedAt: new Date()
-    });
-
     await user.destroy();
-    res.json({ message: 'User removed and archived successfully' });
+    res.json({ message: 'User removed successfully' });
   } catch (error) {
     console.log('Error:', error);
     res.status(500).json({ message: 'An error occurred', error });
   }
 });
 
-// Get all previous employees
-app.get('/api/previous-employees', async (req, res) => {
+// Get all courses
+app.get('/api/courses', async (req, res) => {
   try {
-    const previousEmployees = await PreviousEmployee.findAll();
-    res.json(previousEmployees);
+    const courses = await Course.findAll();
+    res.json(courses);
   } catch (error) {
-    console.log('Error:', error);
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Get a specific course
+app.get('/api/courses/:id', async (req, res) => {
+  try {
+    const course = await Course.findByPk(req.params.id, {
+      include: [{ model: Module, as: 'modules', include: [{ model: Content, as: 'contents' }, { model: Quiz, as: 'quizzes' }] }]
+    });
+    if (!course) {
+      return res.status(404).json({ message: 'Course not found' });
+    }
+    res.json(course);
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Add a new course
+app.post('/api/courses', async (req, res) => {
+  const { title, description, duration, level } = req.body;
+
+  try {
+    const newCourse = await Course.create({
+      title,
+      description,
+      duration,
+      level,
+    });
+    res.json({ message: 'Course created successfully', course: newCourse });
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Get all modules
+app.get('/api/modules', async (req, res) => {
+  try {
+    const modules = await Module.findAll();
+    res.json(modules);
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Add a new module
+app.post('/api/modules', async (req, res) => {
+  const { title, description, duration, contentType, courseId } = req.body;
+
+  try {
+    const newModule = await Module.create({
+      title,
+      description,
+      duration,
+      contentType,
+      courseId,
+    });
+    res.json({ message: 'Module created successfully', module: newModule });
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Get all contents
+app.get('/api/contents', async (req, res) => {
+  try {
+    const contents = await Content.findAll();
+    res.json(contents);
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Add a new content
+app.post('/api/contents', async (req, res) => {
+  const { type, url, moduleId } = req.body;
+
+  try {
+    const newContent = await Content.create({
+      type,
+      url,
+      moduleId,
+    });
+    res.json({ message: 'Content created successfully', content: newContent });
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Get all quizzes
+app.get('/api/quizzes', async (req, res) => {
+  try {
+    const quizzes = await Quiz.findAll();
+    res.json(quizzes);
+  } catch (error) {
+    res.status(500).json({ message: 'An error occurred', error });
+  }
+});
+
+// Add a new quiz
+app.post('/api/quizzes', async (req, res) => {
+  const { question, options, correctAnswer, moduleId } = req.body;
+
+  try {
+    const newQuiz = await Quiz.create({
+      question,
+      options,
+      correctAnswer,
+      moduleId,
+    });
+    res.json({ message: 'Quiz created successfully', quiz: newQuiz });
+  } catch (error) {
     res.status(500).json({ message: 'An error occurred', error });
   }
 });
